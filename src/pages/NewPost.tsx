@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, lazy, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import MDEditor from '@uiw/react-md-editor';
+
+// Lazy load the MDEditor component
+const MDEditor = lazy(() => import('@uiw/react-md-editor'));
 
 export default function NewPost() {
   const [title, setTitle] = useState('');
@@ -14,32 +16,67 @@ export default function NewPost() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) return;
+    if (!user) {
+      setError('You must be logged in to publish a post');
+      return;
+    }
+
+    if (!title.trim() || !content.trim()) {
+      setError('Title and content are required');
+      return;
+    }
 
     setPublishing(true);
+    setError('');
+
     try {
-      // Insert new post into posts table
-      // RLS policy ensures only authenticated users can insert
-      // and author_id must match the authenticated user's ID
+      // First verify the user's profile exists
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('id', user.id)
+        .single();
+
+      if (profileError || !profile) {
+        throw new Error('User profile not found. Please try logging out and back in.');
+      }
+
+      // Then create the post
       const { error: postError } = await supabase
         .from('posts')
         .insert([
           {
-            title,
-            content,
+            title: title.trim(),
+            content: content.trim(),
             author_id: user.id,
-            published: true
+            published: true,
+            created_at: new Date().toISOString()
           }
         ]);
 
       if (postError) throw postError;
       navigate('/');
-    } catch (err) {
-      setError('Failed to publish post');
+    } catch (err: any) {
+      console.error('Post creation error:', err);
+      setError(err.message || 'Failed to publish post. Please try again.');
     } finally {
       setPublishing(false);
     }
   };
+
+  if (!user) {
+    return (
+      <div className="text-center py-12">
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">Please log in to write a post</h2>
+        <button
+          onClick={() => navigate('/login')}
+          className="bg-blue-600 text-white py-2 px-6 rounded-lg hover:bg-blue-700 transition-colors"
+        >
+          Go to Login
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -58,16 +95,19 @@ export default function NewPost() {
             onChange={(e) => setTitle(e.target.value)}
             className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             required
+            disabled={publishing}
           />
         </div>
         <div>
           <label className="block text-gray-700 mb-2">Content</label>
-          <MDEditor
-            value={content}
-            onChange={(val) => setContent(val || '')}
-            preview="edit"
-            height={400}
-          />
+          <Suspense fallback={<div className="h-[400px] bg-gray-100 animate-pulse rounded-lg"></div>}>
+            <MDEditor
+              value={content}
+              onChange={(val) => setContent(val || '')}
+              preview="edit"
+              height={400}
+            />
+          </Suspense>
         </div>
         <button
           type="submit"

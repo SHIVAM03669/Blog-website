@@ -7,16 +7,22 @@ export default function Register() {
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
   const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
   const { signUp } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsLoading(true);
+    setError('');
+
     try {
       await signUp(email, password, username);
       navigate('/');
-    } catch (err) {
-      setError('Failed to create account');
+    } catch (err: any) {
+      setError(err.message || 'Failed to create account. Please try again.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -37,6 +43,7 @@ export default function Register() {
             onChange={(e) => setUsername(e.target.value)}
             className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             required
+            disabled={isLoading}
           />
         </div>
         <div>
@@ -47,6 +54,7 @@ export default function Register() {
             onChange={(e) => setEmail(e.target.value)}
             className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             required
+            disabled={isLoading}
           />
         </div>
         <div>
@@ -57,13 +65,16 @@ export default function Register() {
             onChange={(e) => setPassword(e.target.value)}
             className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             required
+            disabled={isLoading}
+            minLength={6}
           />
         </div>
         <button
           type="submit"
-          className="w-full bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 transition-colors"
+          disabled={isLoading}
+          className="w-full bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 transition-colors disabled:bg-purple-400"
         >
-          Register
+          {isLoading ? 'Creating Account...' : 'Register'}
         </button>
       </form>
     </div>
