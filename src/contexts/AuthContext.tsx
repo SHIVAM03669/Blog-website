@@ -31,91 +31,65 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signIn = async (email: string, password: string) => {
     const { error, data } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) {
-      throw new Error(error.message);
-    }
-    if (!data.user) {
-      throw new Error('No user returned after login');
-    }
-
-    // Verify profile exists
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('id', data.user.id)
-      .single();
-
-    if (profileError || !profile) {
-      await supabase.auth.signOut();
-      throw new Error('Profile not found. Please register a new account.');
-    }
+    if (error) throw error;
+    if (!data.user) throw new Error('No user returned after login');
   };
 
   const signUp = async (email: string, password: string, username: string) => {
-    // Validate username
     if (username.length < 3) {
       throw new Error('Username must be at least 3 characters long');
     }
 
-    // Check if username is already taken
-    const { data: existingUser, error: checkError } = await supabase
-      .from('profiles')
-      .select('username')
-      .eq('username', username)
-      .single();
-
-    if (existingUser) {
-      throw new Error('Username is already taken');
-    }
-
-    if (checkError && checkError.code !== 'PGRST116') { // PGRST116 means no rows returned
-      throw new Error('Error checking username availability');
-    }
-
-    // Create auth user
-    const { error: signUpError, data } = await supabase.auth.signUp({ email, password });
-    if (signUpError) throw new Error(signUpError.message);
-
-    if (!data.user) {
-      throw new Error('Failed to create account');
+    // Validate username format
+    if (!/^[a-z0-9_]+$/.test(username)) {
+      throw new Error('Username can only contain lowercase letters, numbers, and underscores');
     }
 
     try {
-      // Create profile with retries
-      let retries = 3;
-      let profileError = null;
-
-      while (retries > 0) {
-        const { error } = await supabase
-          .from('profiles')
-          .insert([{ 
-            id: data.user.id, 
-            username,
-            created_at: new Date().toISOString()
-          }]);
-        
-        if (!error) {
-          return; // Success
+      // First create the auth user
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            username // Store username in user metadata
+          }
         }
+      });
+
+      if (authError) throw authError;
+      if (!authData.user) throw new Error('Failed to create account');
+
+      // Then create the profile
+      const { error: profileError } = await supabase.auth.getSession().then(async ({ data: { session } }) => {
+        if (!session) throw new Error('No session after signup');
         
-        profileError = error;
-        retries--;
-        await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retry
+        return supabase
+          .from('profiles')
+          .insert([{
+            id: authData.user.id,
+            username,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          }]);
+      });
+
+      if (profileError) {
+        // If profile creation fails, clean up by signing out
+        await supabase.auth.signOut();
+        throw new Error('Failed to create profile: ' + profileError.message);
       }
 
-      // If all retries failed
-      await supabase.auth.signOut();
-      throw new Error(`Failed to create profile after multiple attempts: ${profileError?.message}`);
     } catch (error: any) {
-      // Clean up: sign out and throw error
+      // Clean up and throw error
       await supabase.auth.signOut();
-      throw new Error('Failed to create profile: ' + error.message);
+      throw new Error(error.message || 'Registration failed. Please try again.');
     }
   };
 
   const signOut = async () => {
     const { error } = await supabase.auth.signOut();
-    if (error) throw new Error(error.message);
+    if (error) throw error;
   };
 
   return (
